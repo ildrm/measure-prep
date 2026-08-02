@@ -1,0 +1,367 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  CONTENT_EDITOR
+  ADMIN
+}
+enum ExamCode {
+  IELTS_AC
+  IELTS_GT
+  TOEFL
+  GRE
+}
+enum Skill {
+  READING
+  LISTENING
+  WRITING
+  SPEAKING
+  QUANT
+  VERBAL
+}
+enum SessionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SECTION_BREAK
+  SUBMITTED
+  SCORED
+  MANUAL_REVIEW
+}
+enum QuestionTypeCode {
+  SINGLE_CHOICE
+  MULTI_SELECT
+  TRUE_FALSE_NOT_GIVEN
+  MATCHING
+  GAP_FILL
+  NUMERIC_ENTRY
+  QUANT_COMPARISON
+  ESSAY
+  SPEAKING_TASK
+}
+enum MatchStrategy {
+  EXACT
+  CASE_INSENSITIVE
+  LEMMATIZED
+  NUMERIC_TOLERANCE
+  MULTI_EXACT
+  MULTI_PARTIAL
+  MANUAL
+  AI
+}
+enum AiScoreStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  MANUAL_REVIEW
+}
+enum AuthTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+enum SessionSectionStatus {
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+}
+
+model User {
+  id                 String        @id @default(cuid())
+  email              String        @unique
+  name               String
+  passwordHash       String        @map("password_hash")
+  role               Role          @default(STUDENT)
+  refreshTokenHash   String?       @map("refresh_token_hash") @db.Text
+  emailVerifiedAt    DateTime?     @map("email_verified_at")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
+  sessions           TestSession[]
+  auditLogs          AuditLog[]    @relation("ActorAuditLogs")
+  authTokens         AuthToken[]
+  @@map("users")
+}
+
+model Exam {
+  id          String     @id @default(cuid())
+  code        ExamCode   @unique
+  name        String
+  description String?    @db.Text
+  sections    Section[]
+  testForms   TestForm[]
+  questionTypes QuestionType[]
+  featureFlags FeatureFlag[]
+  @@map("exams")
+}
+
+model Section {
+  id           String   @id @default(cuid())
+  examId       String   @map("exam_id")
+  name         String
+  order        Int
+  timeLimitSec Int      @map("time_limit_sec")
+  skill        Skill
+  instructions String?  @db.Text
+  difficultyLevel Int   @default(1) @map("difficulty_level")
+  exam         Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  passages     Passage[]
+  audioAssets  AudioAsset[]
+  questions    Question[]
+  formSections TestFormSection[]
+  activeSessions TestSession[] @relation("ActiveSection")
+  sessionAttempts SessionSection[]
+  @@unique([examId, name])
+  @@map("sections")
+}
+
+model Passage {
+  id           String   @id @default(cuid())
+  sectionId    String   @map("section_id")
+  title        String
+  bodyRichtext String   @map("body_richtext") @db.LongText
+  sourceNote   String?  @map("source_note")
+  section      Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  questions    Question[]
+  @@map("passages")
+}
+
+model AudioAsset {
+  id          String   @id @default(cuid())
+  sectionId   String   @map("section_id")
+  storageKey  String   @map("storage_key")
+  durationSec Int      @map("duration_sec")
+  transcript  String?  @db.LongText
+  section     Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  questions   Question[]
+  @@map("audio_assets")
+}
+
+model QuestionType {
+  id          String           @id @default(cuid())
+  code        QuestionTypeCode
+  examId      String           @map("exam_id")
+  description String?
+  exam        Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  questions   Question[]
+  @@unique([examId, code])
+  @@map("question_types")
+}
+
+model Question {
+  id           String          @id @default(cuid())
+  sectionId    String          @map("section_id")
+  passageId    String?         @map("passage_id")
+  audioAssetId String?         @map("audio_asset_id")
+  typeId       String          @map("type_id")
+  prompt       String          @db.Text
+  order        Int
+  points       Float           @default(1)
+  metadata     Json?
+  section      Section         @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  passage      Passage?        @relation(fields: [passageId], references: [id], onDelete: SetNull)
+  audioAsset   AudioAsset?     @relation(fields: [audioAssetId], references: [id], onDelete: SetNull)
+  type         QuestionType    @relation(fields: [typeId], references: [id])
+  options      QuestionOption[]
+  answerKey    AnswerKey?
+  sessionAnswers SessionAnswer[]
+  @@unique([sectionId, order])
+  @@map("questions")
+}
+
+model QuestionOption {
+  id         String   @id @default(cuid())
+  questionId String   @map("question_id")
+  label      String
+  value      String
+  isCorrect  Boolean  @default(false) @map("is_correct")
+  order      Int
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  @@unique([questionId, order])
+  @@map("question_options")
+}
+
+model AnswerKey {
+  id              String        @id @default(cuid())
+  questionId      String        @unique @map("question_id")
+  acceptedAnswers Json          @map("accepted_answers_json")
+  matchStrategy   MatchStrategy @map("match_strategy")
+  tolerance       Float?
+  question        Question      @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  @@map("answer_keys")
+}
+
+model TestForm {
+  id          String   @id @default(cuid())
+  examId      String   @map("exam_id")
+  name        String
+  slug        String   @unique
+  isPublished Boolean  @default(false) @map("is_published")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  exam        Exam     @relation(fields: [examId], references: [id])
+  sections    TestFormSection[]
+  sessions    TestSession[]
+  @@unique([examId, name, version])
+  @@map("test_forms")
+}
+
+model TestFormSection {
+  id         String   @id @default(cuid())
+  testFormId String   @map("test_form_id")
+  sectionId  String   @map("section_id")
+  order      Int
+  routeMinPercent Float? @map("route_min_percent")
+  routeMaxPercent Float? @map("route_max_percent")
+  testForm   TestForm @relation(fields: [testFormId], references: [id], onDelete: Cascade)
+  section    Section  @relation(fields: [sectionId], references: [id])
+  @@index([testFormId, order])
+  @@unique([testFormId, sectionId])
+  @@map("test_form_sections")
+}
+
+model TestSession {
+  id                 String        @id @default(cuid())
+  userId             String        @map("user_id")
+  testFormId         String        @map("test_form_id")
+  status             SessionStatus @default(NOT_STARTED)
+  activeSectionId    String?       @map("active_section_id")
+  sectionStartedAt   DateTime?     @map("section_started_at")
+  sectionEndsAt      DateTime?     @map("section_ends_at")
+  startedAt          DateTime?     @map("started_at")
+  submittedAt        DateTime?     @map("submitted_at")
+  integrityEventCount Int          @default(0) @map("integrity_event_count")
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  testForm           TestForm      @relation(fields: [testFormId], references: [id])
+  activeSection      Section?      @relation("ActiveSection", fields: [activeSectionId], references: [id])
+  answers            SessionAnswer[]
+  scores             Score[]
+  sectionAttempts    SessionSection[]
+  @@index([userId, status])
+  @@map("test_sessions")
+}
+
+model SessionSection {
+  id          String               @id @default(cuid())
+  sessionId   String               @map("session_id")
+  sectionId   String               @map("section_id")
+  order       Int
+  status      SessionSectionStatus @default(IN_PROGRESS)
+  startedAt   DateTime             @map("started_at")
+  endsAt      DateTime             @map("ends_at")
+  submittedAt DateTime?            @map("submitted_at")
+  session     TestSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  section     Section              @relation(fields: [sectionId], references: [id])
+  @@unique([sessionId, sectionId])
+  @@index([sessionId, order])
+  @@map("session_sections")
+}
+
+model SessionAnswer {
+  id            String      @id @default(cuid())
+  sessionId     String      @map("session_id")
+  questionId    String      @map("question_id")
+  response      Json        @map("response_json")
+  flagged       Boolean     @default(false)
+  isCorrect     Boolean?    @map("is_correct")
+  pointsAwarded Float?      @map("points_awarded")
+  savedAt       DateTime    @updatedAt @map("saved_at")
+  session       TestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question      Question    @relation(fields: [questionId], references: [id])
+  aiScore       AiScore?
+  @@unique([sessionId, questionId])
+  @@map("session_answers")
+}
+
+model AiScore {
+  id              String        @id @default(cuid())
+  sessionAnswerId String        @unique @map("session_answer_id")
+  provider        String
+  model           String
+  status          AiScoreStatus @default(PENDING)
+  prompt          String        @db.LongText
+  rawResponse     String?       @map("raw_response") @db.LongText
+  criteria        Json?         @map("criteria_json")
+  overallBand     Float?        @map("overall_band")
+  feedback        String?       @db.Text
+  createdAt       DateTime      @default(now()) @map("created_at")
+  sessionAnswer   SessionAnswer @relation(fields: [sessionAnswerId], references: [id], onDelete: Cascade)
+  @@map("ai_scores")
+}
+
+model Score {
+  id          String      @id @default(cuid())
+  sessionId   String      @map("session_id")
+  skill       Skill
+  rawScore    Float       @map("raw_score")
+  maxScore    Float       @map("max_score")
+  scaledScore Float?      @map("scaled_score")
+  band        Float?
+  computedAt  DateTime    @default(now()) @map("computed_at")
+  session     TestSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@unique([sessionId, skill])
+  @@map("scores")
+}
+
+model CttBandTable {
+  id       String   @id @default(cuid())
+  examCode ExamCode @map("exam_code")
+  skill    Skill
+  rawMin   Int      @map("raw_min")
+  rawMax   Int      @map("raw_max")
+  band     Float
+  @@unique([examCode, skill, rawMin, rawMax])
+  @@map("ctt_band_tables")
+}
+
+model ScaleTable {
+  id          String   @id @default(cuid())
+  examCode    ExamCode @map("exam_code")
+  skill       Skill
+  rawMin      Int      @map("raw_min")
+  rawMax      Int      @map("raw_max")
+  scaledScore Float    @map("scaled_score")
+  @@unique([examCode, skill, rawMin, rawMax])
+  @@map("scale_tables")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?  @map("actor_id")
+  action    String
+  entity    String
+  entityId  String   @map("entity_id")
+  diff      Json?    @map("diff_json")
+  createdAt DateTime @default(now()) @map("created_at")
+  actor     User?    @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+  @@index([entity, entityId])
+  @@map("audit_log")
+}
+
+model AuthToken {
+  id        String        @id @default(cuid())
+  userId    String        @map("user_id")
+  type      AuthTokenType
+  tokenHash String        @unique @map("token_hash")
+  expiresAt DateTime      @map("expires_at")
+  usedAt    DateTime?     @map("used_at")
+  createdAt DateTime      @default(now()) @map("created_at")
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, type])
+  @@map("auth_tokens")
+}
+
+model FeatureFlag {
+  id        String   @id @default(cuid())
+  key       String
+  enabled   Boolean  @default(false)
+  examId    String?  @map("exam_id")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  exam      Exam?    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  @@unique([key, examId])
+  @@map("feature_flags")
+}

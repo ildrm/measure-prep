@@ -1,0 +1,29 @@
+{
+  "name": "exam-instrument",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.28.2",
+  "scripts": {
+    "dev": "corepack pnpm --parallel --filter @exam/api --filter @exam/web dev",
+    "build": "corepack pnpm -r build",
+    "typecheck": "corepack pnpm -r typecheck",
+    "test": "corepack pnpm -r test",
+    "lint": "corepack pnpm -r lint",
+    "db:generate": "prisma generate --schema prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "db:seed": "tsx prisma/seed.ts",
+    "compose:up": "docker compose --env-file .env -f infra/docker-compose.yml up --build",
+    "compose:down": "docker compose --env-file .env -f infra/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "3.883.0",
+    "@prisma/client": "6.14.0",
+    "bcryptjs": "3.0.2",
+    "prisma": "6.14.0",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

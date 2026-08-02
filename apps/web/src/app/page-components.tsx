@@ -1,0 +1,1 @@
+export function Instrument({ label, value, detail }: { label: string; value: string; detail: string }) { return <div className="instrument"><small>{label}</small><strong>{value}</strong><span>{detail}</span></div>; }
